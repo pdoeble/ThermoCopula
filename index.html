@@ -301,8 +301,76 @@
       <section class="scaling-section">
         <div class="section-heading section-heading--large">
           <div>
-            <span class="section-kicker">Scaling behavior</span>
-            <h2>What happens as signal count rises?</h2>
+            <span class="section-kicker">Scenario analysis</span>
+            <h2>Explore cost drivers across methods</h2>
+          </div>
+          <p>Choose the horizontal driver and compare all methods on a linear or logarithmic result axis.</p>
+        </div>
+
+        <article class="card scenario-chart-card">
+          <div class="chart-heading">
+            <div>
+              <span class="section-kicker">Configurable line plot</span>
+              <h3 id="scenario-chart-title">Memory over signal count</h3>
+            </div>
+            <span id="scenario-chart-unit" class="chart-unit">Bytes · linear</span>
+          </div>
+
+          <form id="scenario-plot-controls" class="plot-controls">
+            <label class="field">
+              <span>X-axis</span>
+              <select id="scenario-x-axis">
+                <option value="signals" selected>Number of signals</option>
+                <option value="updateRate">Update rate</option>
+                <option value="bins">Discretization levels</option>
+                <option value="method">Dependency method</option>
+                <option value="histFormat">Histogram counter format</option>
+                <option value="cpuFrequencyMhz">CPU frequency</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Y-axis</span>
+              <select id="scenario-y-axis">
+                <option value="memory" selected>Required memory in bytes</option>
+                <option value="cpu">CPU load in %</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Y-axis scale</span>
+              <select id="scenario-y-scale">
+                <option value="linear" selected>Linear</option>
+                <option value="log">Logarithmic</option>
+              </select>
+            </label>
+            <div id="scenario-range-controls" class="plot-range-controls">
+              <label class="field">
+                <span>X minimum</span>
+                <input id="scenario-x-min" type="number" step="any" value="1">
+              </label>
+              <label class="field">
+                <span>X maximum</span>
+                <input id="scenario-x-max" type="number" step="any" value="24">
+              </label>
+              <label class="field">
+                <span>Sample points</span>
+                <input id="scenario-x-points" type="number" min="2" max="80" step="1" value="24">
+              </label>
+            </div>
+          </form>
+
+          <p id="scenario-chart-note" class="chart-note">—</p>
+          <div
+            id="scenario-line-chart"
+            class="line-chart line-chart--scenario"
+            role="img"
+            aria-label="Configurable method comparison line chart"
+          ></div>
+        </article>
+
+        <div class="section-heading section-heading--subsection">
+          <div>
+            <span class="section-kicker">Reference views</span>
+            <h2>Signal-count scaling</h2>
           </div>
           <p>Histogram cost grows linearly. Pairwise copula updates grow quadratically.</p>
         </div>

@@ -7,7 +7,10 @@ A static, client-side GitHub Pages dashboard for comparing:
 - 1D histograms with fixed-ν t-copula accumulators
 
 The page estimates memory use, CPU load, lifetime update counts, counter range,
-and scaling behavior. All inputs and CPU cycle assumptions are editable.
+and scaling behavior. A configurable multi-method line plot can sweep signal
+count, update rate, discretization, dependency method, histogram counter format,
+or CPU frequency. Its result axis can show memory or CPU load on a linear or
+logarithmic scale. All inputs and CPU cycle assumptions are editable.
 
 ## Run locally
 

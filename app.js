@@ -53,6 +53,56 @@ const MEMORY_COMPONENTS = [
   { key: "nu", label: "Fixed ν", color: "#b6413e" },
 ];
 
+const METHOD_COLORS = {
+  histogram: "#0a6c67",
+  gaussian: "#2f69a4",
+  t: "#d96b34",
+};
+
+const SCENARIO_AXES = {
+  signals: {
+    label: "Number of signals",
+    axisLabel: "Signals (d)",
+    inputKey: "signals",
+    integer: true,
+    minimum: 1,
+  },
+  updateRate: {
+    label: "Update rate",
+    axisLabel: "Update rate (Hz)",
+    inputKey: "updateRate",
+    integer: false,
+    minimum: 0.0001,
+  },
+  bins: {
+    label: "Discretization levels",
+    axisLabel: "Bins per signal (B)",
+    inputKey: "bins",
+    integer: true,
+    minimum: 2,
+  },
+  method: {
+    label: "Dependency method",
+    axisLabel: "Dependency method",
+    categorical: true,
+    values: METHOD_ORDER,
+  },
+  histFormat: {
+    label: "Histogram counter format",
+    axisLabel: "Histogram counter format",
+    inputKey: "histFormat",
+    categorical: true,
+    values: ["uint16", "uint24", "uint32"],
+  },
+  cpuFrequencyMhz: {
+    label: "CPU frequency",
+    axisLabel: "CPU frequency (MHz)",
+    inputKey: "cpuFrequencyMhz",
+    integer: false,
+    minimum: 0.1,
+  },
+};
+
 const STATUS_RANK = {
   neutral: 0,
   good: 1,
@@ -698,6 +748,360 @@ function renderOverflowTable(results) {
     .join("");
 }
 
+function getScenarioAxisDefaults(axis, inputs) {
+  switch (axis) {
+    case "signals":
+      return {
+        minimum: 1,
+        maximum: Math.min(128, Math.max(24, Math.ceil(inputs.signals * 2))),
+        points: 24,
+      };
+    case "updateRate":
+      return {
+        minimum: Math.max(0.0001, inputs.updateRate / 10),
+        maximum: Math.max(1, inputs.updateRate),
+        points: 10,
+      };
+    case "bins":
+      return {
+        minimum: 2,
+        maximum: Math.min(1024, Math.max(24, Math.ceil(inputs.bins * 2))),
+        points: 23,
+      };
+    case "cpuFrequencyMhz":
+      return {
+        minimum: Math.max(0.1, inputs.cpuFrequencyMhz / 10),
+        maximum: Math.max(500, inputs.cpuFrequencyMhz * 2),
+        points: 25,
+      };
+    default:
+      return null;
+  }
+}
+
+function generateSweepValues(minimum, maximum, pointCount, integer = false) {
+  let lower = Number.isFinite(minimum) ? minimum : 0;
+  let upper = Number.isFinite(maximum) ? maximum : lower + 1;
+  if (lower > upper) [lower, upper] = [upper, lower];
+
+  const requestedPoints = Math.max(2, Math.min(80, Math.round(pointCount) || 2));
+  if (integer) {
+    const start = Math.ceil(lower);
+    const end = Math.max(start, Math.floor(upper));
+    const availableValues = end - start + 1;
+    const samples = Math.min(requestedPoints, availableValues);
+    if (samples <= 1) return [start];
+
+    return Array.from(
+      new Set(
+        Array.from({ length: samples }, (_, index) =>
+          Math.round(start + (index * (end - start)) / (samples - 1))
+        )
+      )
+    );
+  }
+
+  if (lower === upper) upper = lower + Math.max(Math.abs(lower) * 0.1, 1);
+  return Array.from(
+    { length: requestedPoints },
+    (_, index) => lower + (index * (upper - lower)) / (requestedPoints - 1)
+  );
+}
+
+function calculateScenarioValue(inputs, method, yMetric) {
+  const result = calculateMethodResult(inputs, method);
+  return yMetric === "cpu" ? result.cpuLoad : result.memory.total;
+}
+
+function formatScenarioXValue(axis, value) {
+  if (axis === "signals" || axis === "bins") return formatNumber(Math.round(value));
+  if (axis === "updateRate") {
+    return formatNumber(value, { maximumFractionDigits: value < 1 ? 4 : 2 });
+  }
+  if (axis === "cpuFrequencyMhz") {
+    return formatNumber(value, { maximumFractionDigits: 1 });
+  }
+  return String(value);
+}
+
+function buildScenarioPlotData(inputs, settings) {
+  const xAxis = SCENARIO_AXES[settings.xAxis] ? settings.xAxis : "signals";
+  const yMetric = settings.yMetric === "cpu" ? "cpu" : "memory";
+  const axis = SCENARIO_AXES[xAxis];
+  const yLabel = yMetric === "cpu" ? "CPU load (%)" : "Required memory (bytes)";
+  let series;
+  let xTicks;
+  let xMinimum;
+  let xMaximum;
+  let note;
+
+  if (xAxis === "method") {
+    xTicks = METHOD_ORDER.map((method, index) => ({
+      value: index,
+      label: METHODS[method].shortLabel,
+    }));
+    xMinimum = 0;
+    xMaximum = METHOD_ORDER.length - 1;
+    series = [
+      {
+        label: "Method comparison",
+        color: "#7c5aa6",
+        points: METHOD_ORDER.map((method, index) => ({
+          x: index,
+          xLabel: METHODS[method].label,
+          y: calculateScenarioValue(inputs, method, yMetric),
+        })),
+      },
+    ];
+    note =
+      "Dependency method is the categorical X-axis, so the methods form one comparison line. Other inputs remain fixed.";
+  } else {
+    let xValues;
+    if (axis.categorical) {
+      xValues = axis.values;
+      xMinimum = 0;
+      xMaximum = xValues.length - 1;
+      xTicks = xValues.map((value, index) => ({ value: index, label: value }));
+    } else {
+      const minimum = Math.max(axis.minimum, Number(settings.minimum));
+      const maximum = Math.max(axis.minimum, Number(settings.maximum));
+      xValues = generateSweepValues(
+        minimum,
+        maximum,
+        settings.points,
+        axis.integer
+      );
+      xMinimum = Math.min(...xValues);
+      xMaximum = Math.max(...xValues);
+    }
+
+    series = METHOD_ORDER.map((method) => ({
+      label: METHODS[method].shortLabel,
+      color: METHOD_COLORS[method],
+      points: xValues.map((value, index) => {
+        const modifiedInputs = {
+          ...inputs,
+          [axis.inputKey]: value,
+        };
+        return {
+          x: axis.categorical ? index : value,
+          xLabel: axis.categorical ? value : formatScenarioXValue(xAxis, value),
+          y: calculateScenarioValue(modifiedInputs, method, yMetric),
+        };
+      }),
+    }));
+    note =
+      "Each dependency method is a separate line. Other inputs remain fixed at the current configuration.";
+    if (xAxis === "histFormat" && yMetric === "cpu") {
+      note +=
+        " Histogram counter width does not change this CPU cycle model, so lines remain flat across formats.";
+    }
+  }
+
+  if (settings.yScale === "log") {
+    note += " Zero results are omitted from the logarithmic scale.";
+  }
+
+  return {
+    series,
+    xTicks,
+    xMinimum,
+    xMaximum,
+    xLabel: axis.axisLabel,
+    yLabel,
+    title: `${yMetric === "cpu" ? "CPU load" : "Memory"} over ${axis.label.toLowerCase()}`,
+    unit: `${yMetric === "cpu" ? "% CPU" : "Bytes"} · ${
+      settings.yScale === "log" ? "log" : "linear"
+    }`,
+    note,
+    xFormatter: (value) => formatScenarioXValue(xAxis, value),
+  };
+}
+
+function createLinearTicks(maximum) {
+  return Array.from({ length: 5 }, (_, index) => (maximum / 4) * index);
+}
+
+function createLogTicks(minimumExponent, maximumExponent) {
+  const exponentSpan = maximumExponent - minimumExponent;
+  const step = Math.max(1, Math.ceil(exponentSpan / 5));
+  const ticks = [];
+  for (let exponent = minimumExponent; exponent <= maximumExponent; exponent += step) {
+    ticks.push(10 ** exponent);
+  }
+  const maximum = 10 ** maximumExponent;
+  if (ticks[ticks.length - 1] !== maximum) ticks.push(maximum);
+  return ticks;
+}
+
+function buildConfigurableLineChart(data, yScaleType) {
+  const width = 1040;
+  const height = 410;
+  const margin = { top: 58, right: 25, bottom: 60, left: 94 };
+  const plotWidth = width - margin.left - margin.right;
+  const plotHeight = height - margin.top - margin.bottom;
+  const allValues = data.series.flatMap((item) =>
+    item.points.map((point) => point.y).filter(Number.isFinite)
+  );
+  const positiveValues = allValues.filter((value) => value > 0);
+
+  if (yScaleType === "log" && positiveValues.length === 0) {
+    return '<p class="empty-chart">No positive values are available for a logarithmic Y-axis.</p>';
+  }
+
+  let yTicks;
+  let yScale;
+  if (yScaleType === "log") {
+    let minimumExponent = Math.floor(Math.log10(Math.min(...positiveValues)));
+    let maximumExponent = Math.ceil(Math.log10(Math.max(...positiveValues)));
+    if (minimumExponent === maximumExponent) {
+      minimumExponent -= 1;
+      maximumExponent += 1;
+    }
+    const minimumLog = minimumExponent;
+    const maximumLog = maximumExponent;
+    yTicks = createLogTicks(minimumExponent, maximumExponent);
+    yScale = (value) => {
+      if (value <= 0) return null;
+      return (
+        margin.top +
+        plotHeight -
+        ((Math.log10(value) - minimumLog) / (maximumLog - minimumLog)) * plotHeight
+      );
+    };
+  } else {
+    const yMaximum = niceMaximum(Math.max(...allValues, 0) || 1);
+    yTicks = createLinearTicks(yMaximum);
+    yScale = (value) =>
+      margin.top + plotHeight - (Math.max(0, value) / yMaximum) * plotHeight;
+  }
+
+  let xMinimum = data.xMinimum;
+  let xMaximum = data.xMaximum;
+  if (xMinimum === xMaximum) {
+    xMinimum -= 0.5;
+    xMaximum += 0.5;
+  }
+  const xScale = (value) =>
+    margin.left + ((value - xMinimum) / (xMaximum - xMinimum)) * plotWidth;
+
+  const xTicks =
+    data.xTicks ??
+    Array.from({ length: 5 }, (_, index) => {
+      const value = xMinimum + (index * (xMaximum - xMinimum)) / 4;
+      return { value, label: data.xFormatter(value) };
+    });
+
+  const grid = yTicks
+    .map((tick) => {
+      const y = yScale(tick);
+      return `
+        <line class="chart-gridline" x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}"></line>
+        <text class="chart-label" x="${margin.left - 12}" y="${y + 3}" text-anchor="end">${formatCompact(tick)}</text>
+      `;
+    })
+    .join("");
+
+  const xLabels = xTicks
+    .map((tick) => {
+      const x = xScale(tick.value);
+      return `
+        <line class="chart-axis" x1="${x}" y1="${height - margin.bottom}" x2="${x}" y2="${height - margin.bottom + 5}"></line>
+        <text class="chart-label" x="${x}" y="${height - margin.bottom + 20}" text-anchor="middle">${tick.label}</text>
+      `;
+    })
+    .join("");
+
+  const lines = data.series
+    .map((item) => {
+      const visiblePoints = item.points
+        .map((point) => ({ ...point, plotY: yScale(point.y) }))
+        .filter((point) => point.plotY !== null);
+      const points = visiblePoints
+        .map((point) => `${xScale(point.x)},${point.plotY}`)
+        .join(" ");
+      const circles = visiblePoints
+        .map(
+          (point) => `
+            <circle class="chart-point" fill="${item.color}" cx="${xScale(point.x)}" cy="${point.plotY}" r="3">
+              <title>${item.label} · ${point.xLabel}: ${
+                data.yLabel.startsWith("CPU") ? formatPercent(point.y) : `${formatNumber(point.y)} B`
+              }</title>
+            </circle>
+          `
+        )
+        .join("");
+      return `
+        <polyline class="chart-line" stroke="${item.color}" points="${points}"></polyline>
+        ${circles}
+      `;
+    })
+    .join("");
+
+  const legend = data.series
+    .map(
+      (item, index) => `
+        <line x1="${margin.left + index * 180}" y1="20" x2="${margin.left + 20 + index * 180}" y2="20" stroke="${item.color}" stroke-width="3"></line>
+        <text class="svg-legend-text" x="${margin.left + 28 + index * 180}" y="23">${item.label}</text>
+      `
+    )
+    .join("");
+
+  return `
+    <svg viewBox="0 0 ${width} ${height}" aria-hidden="true">
+      ${legend}
+      ${grid}
+      <line class="chart-axis" x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}"></line>
+      <line class="chart-axis" x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}"></line>
+      ${xLabels}
+      ${lines}
+      <text class="chart-label" x="${margin.left + plotWidth / 2}" y="${height - 9}" text-anchor="middle">${data.xLabel}</text>
+      <text class="chart-label" transform="translate(16 ${margin.top + plotHeight / 2}) rotate(-90)" text-anchor="middle">${data.yLabel}</text>
+    </svg>
+  `;
+}
+
+function getScenarioPlotSettings() {
+  return {
+    xAxis: document.querySelector("#scenario-x-axis").value,
+    yMetric: document.querySelector("#scenario-y-axis").value,
+    yScale: document.querySelector("#scenario-y-scale").value,
+    minimum: Number(document.querySelector("#scenario-x-min").value),
+    maximum: Number(document.querySelector("#scenario-x-max").value),
+    points: Number(document.querySelector("#scenario-x-points").value),
+  };
+}
+
+function configureScenarioRangeControls(inputs) {
+  const axisName = document.querySelector("#scenario-x-axis").value;
+  const axis = SCENARIO_AXES[axisName];
+  const rangeControls = document.querySelector("#scenario-range-controls");
+  rangeControls.hidden = Boolean(axis.categorical);
+  if (axis.categorical) return;
+
+  const defaults = getScenarioAxisDefaults(axisName, inputs);
+  const minimumInput = document.querySelector("#scenario-x-min");
+  const maximumInput = document.querySelector("#scenario-x-max");
+  const pointsInput = document.querySelector("#scenario-x-points");
+  minimumInput.min = axis.minimum;
+  maximumInput.min = axis.minimum;
+  minimumInput.step = axis.integer ? "1" : "any";
+  maximumInput.step = axis.integer ? "1" : "any";
+  minimumInput.value = defaults.minimum;
+  maximumInput.value = defaults.maximum;
+  pointsInput.value = defaults.points;
+}
+
+function renderScenarioPlot(results) {
+  const settings = getScenarioPlotSettings();
+  const data = buildScenarioPlotData(results.inputs, settings);
+  document.querySelector("#scenario-chart-title").textContent = data.title;
+  document.querySelector("#scenario-chart-unit").textContent = data.unit;
+  document.querySelector("#scenario-chart-note").textContent = data.note;
+  document.querySelector("#scenario-line-chart").innerHTML =
+    buildConfigurableLineChart(data, settings.yScale);
+}
+
 function niceMaximum(value) {
   if (value <= 0) return 1;
   const exponent = Math.floor(Math.log10(value));
@@ -786,15 +1190,9 @@ function renderScalingCharts(results) {
     (_, index) => Math.round(1 + (index * (xMaximum - 1)) / (Math.min(xMaximum, 48) - 1))
   ).filter((value, index, array) => index === 0 || value !== array[index - 1]);
 
-  const colors = {
-    histogram: "#0a6c67",
-    gaussian: "#2f69a4",
-    t: "#d96b34",
-  };
-
   const memorySeries = METHOD_ORDER.map((method) => ({
     label: METHODS[method].shortLabel,
-    color: colors[method],
+    color: METHOD_COLORS[method],
     points: sampleSignals.map((signals) => ({
       x: signals,
       y: calculateMemory({ ...results.inputs, signals }, method).total,
@@ -820,7 +1218,7 @@ function renderScalingCharts(results) {
 
   const cpuSeries = METHOD_ORDER.map((method) => ({
     label: METHODS[method].shortLabel,
-    color: colors[method],
+    color: METHOD_COLORS[method],
     points: sampleSignals.map((signals) => ({
       x: signals,
       y: calculateCpuCycles({ ...results.inputs, signals }, method).total,
@@ -855,6 +1253,7 @@ function renderAll() {
   renderComparisonTable(results);
   renderFormulaTable(results);
   renderOverflowTable(results);
+  renderScenarioPlot(results);
   renderScalingCharts(results);
   renderMethodologyExample(results);
 }
@@ -883,15 +1282,29 @@ function resetForm() {
   document.querySelector("#cycles-sum-z").value = DEFAULTS.cyclesSumZ;
   document.querySelector("#cycles-cross-product").value = DEFAULTS.cyclesCrossProduct;
   document.querySelector("#cycles-t-extra").value = DEFAULTS.cyclesTExtra;
+  document.querySelector("#scenario-x-axis").value = "signals";
+  document.querySelector("#scenario-y-axis").value = "memory";
+  document.querySelector("#scenario-y-scale").value = "linear";
+  configureScenarioRangeControls(getInputs());
   renderAll();
 }
 
 if (typeof document !== "undefined") {
   const form = document.querySelector("#model-form");
   const resetButton = document.querySelector("#reset-button");
+  const scenarioControls = document.querySelector("#scenario-plot-controls");
+  const scenarioXAxis = document.querySelector("#scenario-x-axis");
   form.addEventListener("input", renderAll);
   form.addEventListener("change", renderAll);
+  scenarioControls.addEventListener("input", () =>
+    renderScenarioPlot(calculateResults(getInputs()))
+  );
+  scenarioXAxis.addEventListener("change", () => {
+    configureScenarioRangeControls(getInputs());
+    renderScenarioPlot(calculateResults(getInputs()));
+  });
   resetButton.addEventListener("click", resetForm);
+  configureScenarioRangeControls(getInputs());
   renderAll();
 }
 
@@ -909,5 +1322,7 @@ if (typeof module !== "undefined" && module.exports) {
     checkCounterOverflow,
     calculateMethodResult,
     calculateResults,
+    generateSweepValues,
+    buildScenarioPlotData,
   };
 }

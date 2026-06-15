@@ -721,6 +721,44 @@ tbody tr.selected-row td:first-child {
   padding-top: 72px;
 }
 
+.scenario-chart-card {
+  padding: 27px;
+}
+
+.plot-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  background: rgba(244, 241, 233, 0.62);
+}
+
+.plot-range-controls {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.plot-range-controls[hidden] {
+  display: none;
+}
+
+.scenario-chart-card > .chart-note {
+  margin: 16px 0 4px;
+}
+
+.line-chart--scenario {
+  min-height: 390px;
+  margin-top: 8px;
+}
+
+.section-heading--subsection {
+  margin-top: 48px;
+}
+
 .line-chart {
   min-height: 320px;
 }
@@ -910,6 +948,14 @@ footer p {
     grid-template-columns: 1fr;
   }
 
+  .plot-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .plot-range-controls {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .explanation-grid {
     grid-template-columns: 1fr;
   }
@@ -950,7 +996,8 @@ footer p {
 
   .field-grid,
   .summary-grid,
-  .assumption-list {
+  .assumption-list,
+  .plot-range-controls {
     grid-template-columns: 1fr;
   }
 
@@ -958,7 +1005,8 @@ footer p {
   .chart-card,
   .comparison-card,
   .detail-card,
-  .assumptions-card {
+  .assumptions-card,
+  .scenario-chart-card {
     padding: 19px;
   }
 

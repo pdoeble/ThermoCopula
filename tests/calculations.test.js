@@ -4,6 +4,8 @@ const assert = require("node:assert/strict");
 const {
   DEFAULTS,
   calculateResults,
+  generateSweepValues,
+  buildScenarioPlotData,
 } = require("../app.js");
 
 function defaultInputs(overrides = {}) {
@@ -67,5 +69,55 @@ const noLut = calculateResults(
 );
 assert.equal(noLut.selected.memory.components.lut, 0);
 assert.equal(noLut.selected.cycles.transform, 2500);
+
+assert.deepEqual(generateSweepValues(1, 5, 5, true), [1, 2, 3, 4, 5]);
+assert.deepEqual(generateSweepValues(5, 1, 3, true), [1, 3, 5]);
+
+const signalSweep = buildScenarioPlotData(defaultInputs(), {
+  xAxis: "signals",
+  yMetric: "memory",
+  yScale: "linear",
+  minimum: 1,
+  maximum: 24,
+  points: 24,
+});
+assert.equal(signalSweep.series.length, 3);
+assert.equal(signalSweep.series[0].points.length, 24);
+assert.ok(
+  signalSweep.series[1].points.at(-1).y >
+    signalSweep.series[1].points[0].y
+);
+
+const methodComparison = buildScenarioPlotData(defaultInputs(), {
+  xAxis: "method",
+  yMetric: "memory",
+  yScale: "log",
+});
+assert.equal(methodComparison.series.length, 1);
+assert.equal(methodComparison.series[0].points.length, 3);
+assert.equal(methodComparison.xTicks[1].label, "Gaussian");
+
+const counterFormatSweep = buildScenarioPlotData(defaultInputs(), {
+  xAxis: "histFormat",
+  yMetric: "memory",
+  yScale: "linear",
+});
+assert.deepEqual(
+  counterFormatSweep.series[0].points.map((point) => point.y),
+  [244, 364, 484]
+);
+
+const frequencySweep = buildScenarioPlotData(defaultInputs(), {
+  xAxis: "cpuFrequencyMhz",
+  yMetric: "cpu",
+  yScale: "log",
+  minimum: 50,
+  maximum: 200,
+  points: 4,
+});
+assert.ok(
+  frequencySweep.series[1].points[0].y >
+    frequencySweep.series[1].points.at(-1).y
+);
 
 console.log("Calculation tests passed.");
