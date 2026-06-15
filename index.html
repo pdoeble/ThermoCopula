@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta
+      name="description"
+      content="Interactive ECU memory and CPU cost model for histograms, Gaussian copula accumulators, and fixed-nu t-copula accumulators."
+    >
+    <title>ECU Statistics Cost Explorer</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" defer></script>
+  </head>
+  <body>
+    <header class="hero">
+      <div class="hero__inner">
+        <div class="eyebrow">ECU feasibility model</div>
+        <div class="hero__content">
+          <div>
+            <h1>Statistics Cost Explorer</h1>
+            <p class="hero__lead">
+              Compare the memory footprint, CPU load, and information value of
+              1D histograms and compact copula accumulators.
+            </p>
+          </div>
+          <div class="hero__principle" aria-label="Core scaling principle">
+            <span>Histogram</span>
+            <strong>O(d)</strong>
+            <span>Copula</span>
+            <strong>O(d²)</strong>
+            <span>Full grid</span>
+            <strong>O(B<sup>d</sup>)</strong>
+          </div>
+        </div>
+        <p class="hero__note">
+          This is a transparent planning model, not a target-hardware benchmark.
+          Every result updates immediately when an assumption changes.
+        </p>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <section class="model-layout" aria-label="Interactive cost model">
+        <aside class="controls card">
+          <div class="section-heading">
+            <div>
+              <span class="section-kicker">Model inputs</span>
+              <h2>Configuration</h2>
+            </div>
+            <button id="reset-button" class="text-button" type="button">Reset defaults</button>
+          </div>
+
+          <form id="model-form">
+            <fieldset>
+              <legend>Operating profile</legend>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Signals <small>d</small></span>
+                  <input id="signals" name="signals" type="number" min="1" max="128" step="1" value="10">
+                </label>
+                <label class="field">
+                  <span>Update rate <small>Hz</small></span>
+                  <input id="update-rate" name="updateRate" type="number" min="0.0001" max="10000" step="0.1" value="1">
+                </label>
+                <label class="field">
+                  <span>Bins per signal <small>B</small></span>
+                  <input id="bins" name="bins" type="number" min="2" max="1024" step="1" value="12">
+                </label>
+                <label class="field">
+                  <span>Operating life <small>h</small></span>
+                  <input id="operating-hours" name="operatingHours" type="number" min="1" max="1000000" step="100" value="10000">
+                </label>
+                <label class="field">
+                  <span>CPU frequency <small>MHz</small></span>
+                  <input id="cpu-frequency" name="cpuFrequencyMhz" type="number" min="0.1" max="10000" step="1" value="100">
+                </label>
+                <label class="field">
+                  <span>Selected method</span>
+                  <select id="method" name="method">
+                    <option value="histogram">1D histograms only</option>
+                    <option value="gaussian" selected>Gaussian copula</option>
+                    <option value="t">t-copula, fixed ν</option>
+                  </select>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Storage model</legend>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Histogram counters</span>
+                  <select id="hist-format" name="histFormat">
+                    <option value="uint16">uint16</option>
+                    <option value="uint24">uint24</option>
+                    <option value="uint32" selected>uint32</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Copula accumulators</span>
+                  <select id="acc-format" name="accFormat">
+                    <option value="int32">int32</option>
+                    <option value="int64" selected>int64</option>
+                    <option value="float32">float32</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Lifetime sample counter</span>
+                  <select id="sample-format" name="sampleFormat">
+                    <option value="uint32" selected>uint32</option>
+                    <option value="uint64">uint64</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>LUT value format</span>
+                  <select id="lut-format" name="lutFormat">
+                    <option value="float32" selected>float32</option>
+                    <option value="float64">float64</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Maximum LUT magnitude <small>|z|max</small></span>
+                  <input id="z-max" name="zMax" type="number" min="0.1" max="20" step="0.1" value="3.5">
+                </label>
+                <label class="field">
+                  <span>Fixed t degrees of freedom <small>ν</small></span>
+                  <input id="nu" name="nu" type="number" min="2.1" max="200" step="0.1" value="5">
+                </label>
+              </div>
+              <div class="toggle-grid">
+                <label class="toggle">
+                  <input id="use-lut" name="useLut" type="checkbox" checked>
+                  <span class="toggle__track" aria-hidden="true"></span>
+                  <span>Use transform LUT</span>
+                </label>
+                <label class="toggle">
+                  <input id="store-r" name="storeR" type="checkbox">
+                  <span class="toggle__track" aria-hidden="true"></span>
+                  <span>Store an additional R matrix</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset>
+              <legend>Decision budgets</legend>
+              <div class="field-grid">
+                <label class="field">
+                  <span>Available RAM <small>kB</small></span>
+                  <input id="memory-budget" name="memoryBudgetKb" type="number" min="0.01" max="1000000" step="1" value="16">
+                </label>
+                <label class="field">
+                  <span>CPU budget <small>%</small></span>
+                  <input id="cpu-budget" name="cpuBudgetPercent" type="number" min="0.000001" max="100" step="0.01" value="1">
+                </label>
+              </div>
+              <p class="field-note">Green: ≤ 80% of budget. Amber: 80–100%. Red: over budget.</p>
+            </fieldset>
+
+            <details class="advanced">
+              <summary>
+                <span>Advanced CPU cycle model</span>
+                <span class="summary-hint">Editable placeholders</span>
+              </summary>
+              <div class="advanced__body">
+                <div class="field-grid">
+                  <label class="field">
+                    <span>Classification <small>cycles/signal</small></span>
+                    <input id="cycles-classification" name="cyclesClassification" type="number" min="0" step="1" value="20">
+                  </label>
+                  <label class="field">
+                    <span>Histogram increment <small>cycles/signal</small></span>
+                    <input id="cycles-hist-increment" name="cyclesHistIncrement" type="number" min="0" step="1" value="8">
+                  </label>
+                  <label class="field">
+                    <span>LUT read <small>cycles/signal</small></span>
+                    <input id="cycles-lut-read" name="cyclesLutRead" type="number" min="0" step="1" value="4">
+                  </label>
+                  <label class="field">
+                    <span>Direct transform <small>cycles/signal</small></span>
+                    <input id="cycles-direct-transform" name="cyclesDirectTransform" type="number" min="0" step="1" value="250">
+                  </label>
+                  <label class="field">
+                    <span>sum_z update <small>cycles/signal</small></span>
+                    <input id="cycles-sum-z" name="cyclesSumZ" type="number" min="0" step="1" value="6">
+                  </label>
+                  <label class="field">
+                    <span>Cross-product update <small>cycles/pair</small></span>
+                    <input id="cycles-cross-product" name="cyclesCrossProduct" type="number" min="0" step="1" value="18">
+                  </label>
+                  <label class="field">
+                    <span>t-copula extra <small>cycles/signal</small></span>
+                    <input id="cycles-t-extra" name="cyclesTExtra" type="number" min="0" step="1" value="0">
+                  </label>
+                </div>
+                <p class="field-note">
+                  The direct-transform value is only a cost placeholder. No inverse CDF
+                  algorithm is implemented by this page.
+                </p>
+              </div>
+            </details>
+          </form>
+        </aside>
+
+        <div class="dashboard">
+          <section class="summary-grid" aria-label="Management summary">
+            <article class="metric-card">
+              <div class="metric-card__top">
+                <span>Total memory</span>
+                <span id="memory-status" class="status-dot status-good">Within budget</span>
+              </div>
+              <strong id="summary-memory">—</strong>
+              <small id="summary-memory-detail">—</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-card__top">
+                <span>CPU load</span>
+                <span id="cpu-status" class="status-dot status-good">Within budget</span>
+              </div>
+              <strong id="summary-cpu">—</strong>
+              <small id="summary-cpu-detail">—</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-card__top">
+                <span>Lifetime updates</span>
+                <span class="metric-tag">All methods</span>
+              </div>
+              <strong id="summary-updates">—</strong>
+              <small id="summary-update-detail">—</small>
+            </article>
+            <article class="metric-card">
+              <div class="metric-card__top">
+                <span>Counter status</span>
+                <span id="counter-status" class="status-dot status-good">Safe</span>
+              </div>
+              <strong id="summary-counter">—</strong>
+              <small id="summary-counter-detail">—</small>
+            </article>
+          </section>
+
+          <section id="decision-panel" class="decision-panel status-panel-good" aria-live="polite">
+            <div>
+              <span class="section-kicker">Selected-method assessment</span>
+              <h2 id="decision-title">—</h2>
+            </div>
+            <p id="decision-text">—</p>
+          </section>
+
+          <section class="chart-grid">
+            <article class="chart-card card">
+              <div class="chart-heading">
+                <div>
+                  <span class="section-kicker">Storage comparison</span>
+                  <h2>Memory by component</h2>
+                </div>
+                <span id="memory-chart-unit" class="chart-unit">Bytes</span>
+              </div>
+              <div id="memory-chart" class="bar-chart" role="img" aria-label="Stacked memory comparison chart"></div>
+              <div id="memory-legend" class="legend"></div>
+            </article>
+
+            <article class="chart-card card">
+              <div class="chart-heading">
+                <div>
+                  <span class="section-kicker">Runtime comparison</span>
+                  <h2>CPU load</h2>
+                </div>
+                <span class="chart-unit">% of one CPU core</span>
+              </div>
+              <div id="cpu-chart" class="bar-chart bar-chart--cpu" role="img" aria-label="CPU load comparison chart"></div>
+              <p id="cpu-chart-note" class="chart-note">—</p>
+            </article>
+          </section>
+
+          <section class="card comparison-card">
+            <div class="chart-heading">
+              <div>
+                <span class="section-kicker">Decision view</span>
+                <h2>Method comparison</h2>
+              </div>
+              <span class="chart-unit">Current inputs</span>
+            </div>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Method</th>
+                    <th>Memory</th>
+                    <th>Cycles/update</th>
+                    <th>CPU load</th>
+                    <th>Dependency information</th>
+                    <th>Assessment</th>
+                  </tr>
+                </thead>
+                <tbody id="comparison-table-body"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section class="scaling-section">
+        <div class="section-heading section-heading--large">
+          <div>
+            <span class="section-kicker">Scaling behavior</span>
+            <h2>What happens as signal count rises?</h2>
+          </div>
+          <p>Histogram cost grows linearly. Pairwise copula updates grow quadratically.</p>
+        </div>
+        <div class="chart-grid">
+          <article class="chart-card card">
+            <div class="chart-heading">
+              <h3>Memory over signal count</h3>
+              <span id="memory-scale-unit" class="chart-unit">Bytes</span>
+            </div>
+            <div id="memory-scaling-chart" class="line-chart" role="img" aria-label="Memory scaling line chart"></div>
+          </article>
+          <article class="chart-card card">
+            <div class="chart-heading">
+              <h3>CPU over signal count</h3>
+              <span class="chart-unit">Cycles/update</span>
+            </div>
+            <div id="cpu-scaling-chart" class="line-chart" role="img" aria-label="CPU scaling line chart"></div>
+          </article>
+        </div>
+      </section>
+
+      <section class="technical-section">
+        <div class="section-heading section-heading--large">
+          <div>
+            <span class="section-kicker">Technical traceability</span>
+            <h2>Calculation details</h2>
+          </div>
+          <p>All values below use the selected method and the current inputs.</p>
+        </div>
+
+        <div class="technical-grid">
+          <article class="card detail-card">
+            <h3>Formula breakdown</h3>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Block</th>
+                    <th>Formula</th>
+                    <th>Result</th>
+                  </tr>
+                </thead>
+                <tbody id="formula-table-body"></tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card detail-card">
+            <h3>Counter and accumulator screening</h3>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Storage item</th>
+                    <th>Projected maximum</th>
+                    <th>Type limit</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody id="overflow-table-body"></tbody>
+              </table>
+            </div>
+            <p class="table-footnote">
+              Histogram screening assumes every update could hit one bin. Copula screening
+              uses N × max(|z|max, |z|max²), a conservative magnitude bound rather than a
+              proof of numerical accuracy.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section class="methodology-section">
+        <div class="section-heading section-heading--large">
+          <div>
+            <span class="section-kicker">Methodology</span>
+            <h2>What the model means</h2>
+          </div>
+        </div>
+
+        <div class="explanation-grid">
+          <article class="explanation-card">
+            <span class="explanation-card__number">01</span>
+            <h3>Why 1D histograms are not enough</h3>
+            <p>
+              A histogram records how often each value range occurs for one signal. It
+              cannot reconstruct whether high or low values in different signals occurred
+              at the same time.
+            </p>
+            <code>T1 high + T2 high at the same instant → not recoverable</code>
+          </article>
+
+          <article class="explanation-card">
+            <span class="explanation-card__number">02</span>
+            <h3>What copula accumulators retain</h3>
+            <p>
+              Each current signal vector is mapped to normalized values. Pairwise products
+              are accumulated without storing historical raw samples.
+            </p>
+            <code>x[i] → bin k[i] → z[i] → sum_zz[i,j] += z[i] · z[j]</code>
+          </article>
+
+          <article class="explanation-card">
+            <span class="explanation-card__number">03</span>
+            <h3>The deliberate information trade-off</h3>
+            <p>
+              A full multidimensional grid needs B<sup>d</sup> cells. The copula model
+              reduces this to d(d + 1)/2 pair entries. It is compact, but it does not retain
+              every higher-order dependency.
+            </p>
+            <code id="full-grid-example">—</code>
+          </article>
+        </div>
+
+        <article class="card assumptions-card">
+          <div>
+            <span class="section-kicker">Boundaries of this estimate</span>
+            <h2>Assumptions and limits</h2>
+          </div>
+          <ul class="assumption-list">
+            <li>No historical raw data is stored or simulated.</li>
+            <li>Copula accumulators provide a compact pairwise dependency summary, not a full joint distribution.</li>
+            <li>The t-copula uses a fixed, calibrated ν. Live estimation of ν is outside this model.</li>
+            <li>CPU cycle values are editable engineering assumptions and require calibration on target hardware.</li>
+            <li>A disabled LUT uses a user-supplied transform cost; this page does not implement an inverse CDF.</li>
+            <li>Accumulator screening is conservative and does not replace fixed-point range and precision analysis.</li>
+            <li>NVM write cycles, wear leveling, AUTOSAR integration, and scheduling overhead are not modeled.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      <p>Static client-side model · No data leaves the browser · Designed for GitHub Pages</p>
+    </footer>
+  </body>
+</html>
